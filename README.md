@@ -4,12 +4,12 @@ A lil Stardew-style farming sim for Android, made for Jeremy.
 
 No internet needed, no account, your farm saves on your phone.
 
-## How to play
+## How to play (v2: walkable character)
 
-1. Till the grass.
-2. Pick a seed and Plant it on tilled soil.
-3. Water it.
-4. Tap Next Day to grow it. Water again each day or it will not grow.
+1. Hold an arrow button to walk your farmer around the field. Your position saves.
+2. Stand on a tile and tap Use Tool. With Till, that tills the grass under you.
+3. Pick a seed and Plant it on tilled soil you are standing on.
+4. Water it, then tap Next Day to grow it. Water again each day or it will not grow.
 5. Harvest when it is ready, then plant again on that same soil.
 
 Crops:
