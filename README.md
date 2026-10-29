@@ -4,7 +4,9 @@ A lil Stardew-style farming sim for Android, made for Jeremy.
 
 No internet needed, no account, your farm saves on your phone.
 
-## How to play (v3: map, house, and animals)
+## How to play (v4: isometric 2.5D map, house, and animals)
+
+The map is now drawn in isometric 2.5D: tiles are diamonds, with the top of the map at the top center. All v3 gameplay is unchanged, only the look changed.
 
 Walk a 10 by 8 map. House is top left, pond top right, mine middle right,
 animal pen bottom right, and the farm field is the middle area, cols 2 to 7,
