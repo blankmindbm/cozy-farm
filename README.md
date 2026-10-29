@@ -4,20 +4,30 @@ A lil Stardew-style farming sim for Android, made for Jeremy.
 
 No internet needed, no account, your farm saves on your phone.
 
-## How to play (v2: walkable character)
+## How to play (v3: map, house, and animals)
 
-1. Hold an arrow button to walk your farmer around the field. Your position saves.
-2. Stand on a tile and tap Use Tool. With Till, that tills the grass under you.
-3. Pick a seed and Plant it on tilled soil you are standing on.
-4. Water it, then tap Next Day to grow it. Water again each day or it will not grow.
-5. Harvest when it is ready, then plant again on that same soil.
+Walk a 10 by 8 map. House is top left, pond top right, mine middle right,
+animal pen bottom right, and the farm field is the middle area, cols 2 to 7,
+rows 2 to 5.
+
+1. Hold an arrow button to walk your farmer around the map. House, pond,
+   and mine tiles block walking. Your position saves.
+2. Stand on a field tile and tap Use Tool. With Till, that tills the soil
+   under you. Plant, water, and harvest there as before.
+3. Buy a chicken (50c) or a cow (150c). It lives in the pen, up to 6 animals.
+4. Each Next Day, animals make produce and wander to a new pen tile.
+   Stand on an animal and use Collect: egg 15c, milk 35c.
+5. Walk next to your house and tap Home to save with a welcome home message.
+   Pond and mine are on the map now, fishing and mining come in a later stage.
 
 Crops:
 - Wheat: 10 coins to plant, sells for 25, takes 2 watered days
 - Carrot: 15 coins to plant, sells for 40, takes 3 watered days
 - Pumpkin: 25 coins to plant, sells for 80, takes 4 watered days
 
-You start with 50 coins on Day 1, on a 6 by 5 field (30 tiles).
+You start with 50 coins on Day 1. Note: v3 changed the map from 6 by 5 to
+10 by 8, so an old v2 field layout does not carry over, but coins, day,
+and animals (if any) logic starts clean on the new map.
 
 ## Build the APK with GitHub, no Android Studio
 
