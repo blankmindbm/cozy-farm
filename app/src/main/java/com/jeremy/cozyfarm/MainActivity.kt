@@ -20,8 +20,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.random.Random
 
 class MainActivity : AppCompatActivity() {
 
@@ -46,18 +48,31 @@ class MainActivity : AppCompatActivity() {
         var watered: Boolean = false
     )
 
-    private val cols = 6
-    private val rows = 5
+    private data class Animal(
+        var type: String,
+        var col: Int,
+        var row: Int,
+        var ready: Boolean = false
+    )
+
+    // World map: 10 wide, 8 tall.
+    private val cols = 10
+    private val rows = 8
     private val tiles = MutableList(rows * cols) { Tile() }
+    private val animals = mutableListOf<Animal>()
+
+    private val penTiles = listOf(
+        Pair(8, 5), Pair(9, 5), Pair(8, 6),
+        Pair(9, 6), Pair(8, 7), Pair(9, 7)
+    )
 
     private var coins = 50
     private var day = 1
     private var tool = "Till"
     private var selectedSeed = "Wheat"
 
-    // Character position, in tile units. 2.5, 2.5 is the middle tile.
     private var charX = 2.5f
-    private var charY = 2.5f
+    private var charY = 1.5f
     private var moveDx = 0
     private var moveDy = 0
 
@@ -73,13 +88,22 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             if (moveDx != 0 || moveDy != 0) {
                 val speed = 0.055f
-                charX = min(max(charX + moveDx * speed, 0.5f), cols - 0.5f)
-                charY = min(max(charY + moveDy * speed, 0.5f), rows - 0.5f)
+                val nextX = min(max(charX + moveDx * speed, 0.5f), cols - 0.5f)
+                if (!isBlocked(nextX.toInt(), charY.toInt())) charX = nextX
+                val nextY = min(max(charY + moveDy * speed, 0.5f), rows - 0.5f)
+                if (!isBlocked(charX.toInt(), nextY.toInt())) charY = nextY
                 farmView.invalidate()
             }
             handler.postDelayed(this, 16)
         }
     }
+
+    private fun isHouseTile(c: Int, r: Int) = c in 0..1 && r in 0..1
+    private fun isPondTile(c: Int, r: Int) = c in 8..9 && r in 0..1
+    private fun isMineTile(c: Int, r: Int) = c == 9 && r == 3
+    private fun isPenTile(c: Int, r: Int) = penTiles.contains(Pair(c, r))
+    private fun isFieldTile(c: Int, r: Int) = c in 2..7 && r in 2..5
+    private fun isBlocked(c: Int, r: Int) = isHouseTile(c, r) || isPondTile(c, r) || isMineTile(c, r)
 
     private inner class FarmView(context: Context) : View(context) {
         private val tilePaint = Paint()
@@ -111,18 +135,31 @@ class MainActivity : AppCompatActivity() {
             for (r in 0 until rows) {
                 for (c in 0 until cols) {
                     val tile = tiles[r * cols + c]
-                    tilePaint.color = when (tile.state) {
-                        1 -> Color.parseColor("#8D6E63")
-                        2 -> if (tile.watered) Color.parseColor("#6D4C41") else Color.parseColor("#8D6E63")
+                    val bg = when {
+                        isHouseTile(c, r) -> Color.parseColor("#FFE0B2")
+                        isPondTile(c, r) -> Color.parseColor("#4FC3F7")
+                        isMineTile(c, r) -> Color.parseColor("#9E9E9E")
+                        isPenTile(c, r) -> Color.parseColor("#C5E1A5")
+                        isFieldTile(c, r) -> when (tile.state) {
+                            1, 2 -> Color.parseColor("#8D6E63")
+                            else -> Color.parseColor("#AED581")
+                        }
                         else -> Color.parseColor("#7CB342")
                     }
+                    tilePaint.color = bg
                     tilePaint.style = Paint.Style.FILL
                     canvas.drawRect(c * tileW, r * tileH, (c + 1) * tileW, (r + 1) * tileH, tilePaint)
                     canvas.drawRect(c * tileW, r * tileH, (c + 1) * tileW, (r + 1) * tileH, borderPaint)
-                    val emoji = when (tile.state) {
-                        0 -> "🌱"
-                        1 -> ""
-                        else -> tileEmoji(tile)
+                    val emoji = when {
+                        isHouseTile(c, r) -> "🏠"
+                        isPondTile(c, r) -> "💧"
+                        isMineTile(c, r) -> "⛏️"
+                        isFieldTile(c, r) -> when (tile.state) {
+                            0 -> ""
+                            1 -> ""
+                            else -> tileEmoji(tile)
+                        }
+                        else -> ""
                     }
                     if (emoji.isNotEmpty()) {
                         emojiPaint.textSize = min(tileW, tileH) * 0.5f
@@ -133,7 +170,7 @@ class MainActivity : AppCompatActivity() {
                             emojiPaint
                         )
                     }
-                    if (tile.watered && tile.state == 2) {
+                    if (isFieldTile(c, r) && tile.watered && tile.state == 2) {
                         emojiPaint.textSize = min(tileW, tileH) * 0.28f
                         canvas.drawText(
                             "💧",
@@ -142,6 +179,26 @@ class MainActivity : AppCompatActivity() {
                             emojiPaint
                         )
                     }
+                }
+            }
+            for (animal in animals) {
+                val emoji = if (animal.type == "Cow") "🐄" else "🐔"
+                emojiPaint.textSize = min(tileW, tileH) * 0.55f
+                canvas.drawText(
+                    emoji,
+                    animal.col * tileW + tileW / 2,
+                    animal.row * tileH + tileH / 2 + emojiPaint.textSize / 3,
+                    emojiPaint
+                )
+                if (animal.ready) {
+                    emojiPaint.textSize = min(tileW, tileH) * 0.3f
+                    val prod = if (animal.type == "Cow") "🥛" else "🥚"
+                    canvas.drawText(
+                        prod,
+                        animal.col * tileW + tileW - emojiPaint.textSize / 2,
+                        animal.row * tileH + emojiPaint.textSize,
+                        emojiPaint
+                    )
                 }
             }
             val charCol = charX.toInt()
@@ -196,9 +253,10 @@ class MainActivity : AppCompatActivity() {
         root.addView(toolText)
 
         val toolRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("Till", "Plant", "Water", "Harvest", "Clear").forEach { name ->
+        listOf("Till", "Plant", "Water", "Harvest", "Clear", "Collect").forEach { name ->
             val b = Button(this).apply {
                 text = name
+                textSize = 12f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 setOnClickListener {
                     tool = name
@@ -233,16 +291,38 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(seedRow)
 
+        val animalLabel = TextView(this).apply {
+            text = "Animals (live in the pen, bottom right):"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setPadding(0, dp(12), 0, dp(4))
+        }
+        root.addView(animalLabel)
+
+        val animalRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val buyChicken = Button(this).apply {
+            text = "Buy Chicken 50c"
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { buyAnimal("Chicken", 50) }
+        }
+        val buyCow = Button(this).apply {
+            text = "Buy Cow 150c"
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { buyAnimal("Cow", 150) }
+        }
+        animalRow.addView(buyChicken)
+        animalRow.addView(buyCow)
+        root.addView(animalRow)
+
         farmView = FarmView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(300)
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(320)
             )
             setPadding(0, dp(12), 0, dp(12))
         }
         root.addView(farmView)
 
         val moveLabel = TextView(this).apply {
-            text = "Walk with the arrows, stand on a tile, then tap Use Tool."
+            text = "Walk with the arrows. House is top left, pond top right, mine middle right, pen bottom right. Stand on a tile, then tap Use Tool."
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             gravity = Gravity.CENTER
             setPadding(0, dp(4), 0, dp(4))
@@ -277,6 +357,24 @@ class MainActivity : AppCompatActivity() {
         downRow.addView(dpadButton("⬇️", 0, 1))
         root.addView(downRow)
 
+        val homeButton = Button(this).apply {
+            text = "🏠 Home"
+            setOnClickListener {
+                val c = charX.toInt()
+                val r = charY.toInt()
+                val nearHouse = (0..1).any { hc ->
+                    (0..1).any { hr -> abs(c - hc) + abs(r - hr) <= 1 }
+                }
+                if (nearHouse) {
+                    saveGame()
+                    Toast.makeText(this@MainActivity, "Welcome home! Your game is saved.", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this@MainActivity, "Walk to your house, top left, first.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        root.addView(homeButton)
+
         val nextDay = Button(this).apply {
             text = "☀️ Next Day"
             setPadding(0, dp(12), 0, dp(12))
@@ -289,13 +387,14 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Start over?")
-                    .setMessage("This clears your farm, coins, and day.")
+                    .setMessage("This clears your farm, animals, coins, and day.")
                     .setPositiveButton("Yes, start over") { _, _ ->
                         prefs.edit().clear().apply()
                         coins = 50
                         day = 1
                         charX = 2.5f
-                        charY = 2.5f
+                        charY = 1.5f
+                        animals.clear()
                         for (i in tiles.indices) tiles[i] = Tile()
                         saveGame()
                         refreshAll()
@@ -308,7 +407,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(reset)
 
         val help = TextView(this).apply {
-            text = "How to play: Hold an arrow to walk. Stand on grass and Use Tool with Till, then Plant a seed, Water it, tap Next Day to grow it. Water again each day or it will not grow. Harvest when you see 🌾, 🥕, or 🎃. Wheat takes 2 days, Carrot 3, Pumpkin 4. Your farm and your character position save automatically."
+            text = "How to play: Hold an arrow to walk. Field is the middle area, cols 2 to 7, rows 2 to 5. Till, plant, water, and harvest there. Buy a chicken for eggs (15c each) or a cow for milk (35c each). Animals make produce each new day, stand on one and use Collect. Pond and mine are on the map for fishing and mining in a later stage. Your farm, animals, and character position save automatically."
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setPadding(0, dp(12), 0, 0)
         }
@@ -362,12 +461,66 @@ class MainActivity : AppCompatActivity() {
         return r * cols + c
     }
 
+    private fun buyAnimal(type: String, cost: Int) {
+        if (coins < cost) {
+            Toast.makeText(this, "Not enough coins for a $type.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val emptyPen = penTiles.firstOrNull { (c, r) ->
+            animals.none { it.col == c && it.row == r }
+        }
+        if (emptyPen == null) {
+            Toast.makeText(this, "Your pen is full.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        coins -= cost
+        animals.add(Animal(type, emptyPen.first, emptyPen.second, false))
+        saveGame()
+        refreshAll()
+        Toast.makeText(this, "Bought a $type! It will make produce tomorrow.", Toast.LENGTH_SHORT).show()
+    }
+
     private fun useToolOnCurrentTile() {
+        val c = charX.toInt()
+        val r = charY.toInt()
+        if (isHouseTile(c, r) || isPondTile(c, r) || isMineTile(c, r)) {
+            Toast.makeText(this, "You cannot farm here.", Toast.LENGTH_SHORT).show()
+            return
+        }
         onTileClicked(currentTileIndex())
     }
 
     private fun onTileClicked(index: Int) {
+        val c = index % cols
+        val r = index / cols
         val tile = tiles[index]
+        when (tool) {
+            "Till", "Plant", "Water", "Harvest" -> {
+                if (!isFieldTile(c, r)) {
+                    Toast.makeText(this, "Farm in the middle field area.", Toast.LENGTH_SHORT).show()
+                    saveGame()
+                    refreshAll()
+                    return
+                }
+            }
+            "Collect" -> {
+                val animal = animals.firstOrNull { it.col == c && it.row == r }
+                if (animal == null) {
+                    Toast.makeText(this, "No animal on this tile. Stand on a chicken or cow.", Toast.LENGTH_SHORT).show()
+                } else if (!animal.ready) {
+                    Toast.makeText(this, "Not ready yet. Come back tomorrow.", Toast.LENGTH_SHORT).show()
+                } else {
+                    val price = if (animal.type == "Cow") 35 else 15
+                    val prod = if (animal.type == "Cow") "milk" else "an egg"
+                    coins += price
+                    animal.ready = false
+                    Toast.makeText(this, "Collected $prod! +$price coins.", Toast.LENGTH_SHORT).show()
+                }
+                saveGame()
+                refreshAll()
+                return
+            }
+        }
         when (tool) {
             "Till" -> {
                 if (tile.state == 0) {
@@ -435,18 +588,29 @@ class MainActivity : AppCompatActivity() {
             }
             tile.watered = false
         }
+        for (animal in animals) {
+            animal.ready = true
+            val emptyPen = penTiles.filter { (c, r) ->
+                animals.none { it.col == c && it.row == r } || (animal.col == c && animal.row == r)
+            }
+            if (emptyPen.isNotEmpty()) {
+                val dest = emptyPen[Random.nextInt(emptyPen.size)]
+                animal.col = dest.first
+                animal.row = dest.second
+            }
+        }
         day += 1
         saveGame()
         refreshAll()
         if (grew > 0) {
-            Toast.makeText(this, "Day $day! $grew crops grew.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Day $day! $grew crops grew, and your animals made produce.", Toast.LENGTH_SHORT).show()
         } else {
-            Toast.makeText(this, "Day $day! No crops grew. Remember to water them.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Day $day! Your animals made produce.", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun tileEmoji(tile: Tile): String {
-        if (tile.state == 0) return "🌱"
+        if (tile.state == 0) return ""
         if (tile.state == 1) return ""
         val crop = crops[tile.crop] ?: return "🌱"
         return when {
@@ -457,7 +621,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshAll() {
-        statusText.text = "Day $day  •  🪙 $coins coins"
+        val animalCount = animals.size
+        statusText.text = "Day $day  •  🪙 $coins coins  •  🐔🐄 $animalCount animals"
         toolText.text = "Tool: $tool" + if (tool == "Plant") " ($selectedSeed)" else ""
         toolButtons.forEach { (name, b) ->
             b.setBackgroundColor(if (name == tool) Color.parseColor("#A5D6A7") else Color.parseColor("#DDDDDD"))
@@ -472,10 +637,14 @@ class MainActivity : AppCompatActivity() {
         val tileString = tiles.joinToString(";") {
             "${it.state},${it.crop},${it.progress},${if (it.watered) 1 else 0}"
         }
+        val animalString = animals.joinToString(";") {
+            "${it.type},${it.col},${it.row},${if (it.ready) 1 else 0}"
+        }
         prefs.edit()
             .putInt("coins", coins)
             .putInt("day", day)
             .putString("tiles", tileString)
+            .putString("animals", animalString)
             .putFloat("charX", charX)
             .putFloat("charY", charY)
             .apply()
@@ -485,19 +654,37 @@ class MainActivity : AppCompatActivity() {
         coins = prefs.getInt("coins", 50)
         day = prefs.getInt("day", 1)
         charX = prefs.getFloat("charX", 2.5f)
-        charY = prefs.getFloat("charY", 2.5f)
-        val saved = prefs.getString("tiles", null) ?: return
-        val parts = saved.split(";")
-        for (i in parts.indices) {
-            if (i >= tiles.size) break
-            val f = parts[i].split(",")
-            if (f.size < 4) continue
-            tiles[i] = Tile(
-                state = f[0].toIntOrNull() ?: 0,
-                crop = f[1],
-                progress = f[2].toIntOrNull() ?: 0,
-                watered = f[3] == "1"
-            )
+        charY = prefs.getFloat("charY", 1.5f)
+        val saved = prefs.getString("tiles", null)
+        if (saved != null) {
+            val parts = saved.split(";")
+            if (parts.size == tiles.size) {
+                for (i in parts.indices) {
+                    val f = parts[i].split(",")
+                    if (f.size < 4) continue
+                    tiles[i] = Tile(
+                        state = f[0].toIntOrNull() ?: 0,
+                        crop = f[1],
+                        progress = f[2].toIntOrNull() ?: 0,
+                        watered = f[3] == "1"
+                    )
+                }
+            }
+        }
+        val savedAnimals = prefs.getString("animals", null)
+        if (!savedAnimals.isNullOrEmpty()) {
+            for (part in savedAnimals.split(";")) {
+                val f = part.split(",")
+                if (f.size < 4) continue
+                animals.add(
+                    Animal(
+                        type = f[0],
+                        col = f[1].toIntOrNull() ?: 8,
+                        row = f[2].toIntOrNull() ?: 5,
+                        ready = f[3] == "1"
+                    )
+                )
+            }
         }
     }
 }
