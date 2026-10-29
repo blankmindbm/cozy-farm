@@ -1,10 +1,17 @@
 package com.jeremy.cozyfarm
 
+import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
@@ -13,6 +20,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import kotlin.math.max
+import kotlin.math.min
 
 class MainActivity : AppCompatActivity() {
 
@@ -46,12 +55,111 @@ class MainActivity : AppCompatActivity() {
     private var tool = "Till"
     private var selectedSeed = "Wheat"
 
+    // Character position, in tile units. 2.5, 2.5 is the middle tile.
+    private var charX = 2.5f
+    private var charY = 2.5f
+    private var moveDx = 0
+    private var moveDy = 0
+
     private lateinit var prefs: SharedPreferences
     private lateinit var statusText: TextView
     private lateinit var toolText: TextView
-    private val tileButtons = mutableListOf<Button>()
+    private lateinit var farmView: FarmView
     private val toolButtons = mutableMapOf<String, Button>()
     private val seedButtons = mutableMapOf<String, Button>()
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val moveRunnable = object : Runnable {
+        override fun run() {
+            if (moveDx != 0 || moveDy != 0) {
+                val speed = 0.055f
+                charX = min(max(charX + moveDx * speed, 0.5f), cols - 0.5f)
+                charY = min(max(charY + moveDy * speed, 0.5f), rows - 0.5f)
+                farmView.invalidate()
+            }
+            handler.postDelayed(this, 16)
+        }
+    }
+
+    private inner class FarmView(context: Context) : View(context) {
+        private val tilePaint = Paint()
+        private val borderPaint = Paint().apply {
+            color = Color.parseColor("#558B2F")
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        private val highlightPaint = Paint().apply {
+            color = Color.YELLOW
+            style = Paint.Style.STROKE
+            strokeWidth = 8f
+        }
+        private val emojiPaint = Paint().apply {
+            color = Color.BLACK
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
+        private val charPaint = Paint().apply {
+            color = Color.BLACK
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val tileW = width.toFloat() / cols
+            val tileH = height.toFloat() / rows
+            for (r in 0 until rows) {
+                for (c in 0 until cols) {
+                    val tile = tiles[r * cols + c]
+                    tilePaint.color = when (tile.state) {
+                        1 -> Color.parseColor("#8D6E63")
+                        2 -> if (tile.watered) Color.parseColor("#6D4C41") else Color.parseColor("#8D6E63")
+                        else -> Color.parseColor("#7CB342")
+                    }
+                    tilePaint.style = Paint.Style.FILL
+                    canvas.drawRect(c * tileW, r * tileH, (c + 1) * tileW, (r + 1) * tileH, tilePaint)
+                    canvas.drawRect(c * tileW, r * tileH, (c + 1) * tileW, (r + 1) * tileH, borderPaint)
+                    val emoji = when (tile.state) {
+                        0 -> "🌱"
+                        1 -> ""
+                        else -> tileEmoji(tile)
+                    }
+                    if (emoji.isNotEmpty()) {
+                        emojiPaint.textSize = min(tileW, tileH) * 0.5f
+                        canvas.drawText(
+                            emoji,
+                            c * tileW + tileW / 2,
+                            r * tileH + tileH / 2 + emojiPaint.textSize / 3,
+                            emojiPaint
+                        )
+                    }
+                    if (tile.watered && tile.state == 2) {
+                        emojiPaint.textSize = min(tileW, tileH) * 0.28f
+                        canvas.drawText(
+                            "💧",
+                            c * tileW + tileW - emojiPaint.textSize / 2,
+                            r * tileH + emojiPaint.textSize,
+                            emojiPaint
+                        )
+                    }
+                }
+            }
+            val charCol = charX.toInt()
+            val charRow = charY.toInt()
+            canvas.drawRect(
+                charCol * tileW, charRow * tileH,
+                (charCol + 1) * tileW, (charRow + 1) * tileH,
+                highlightPaint
+            )
+            charPaint.textSize = min(tileW, tileH) * 0.85f
+            canvas.drawText(
+                "🧑‍🌾",
+                charX * tileW,
+                charY * tileH + charPaint.textSize / 3,
+                charPaint
+            )
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -125,21 +233,49 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(seedRow)
 
-        for (r in 0 until rows) {
-            val rowLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (c in 0 until cols) {
-                val index = r * cols + c
-                val b = Button(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, dp(58), 1f)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-                    setPadding(0, 0, 0, 0)
-                    setOnClickListener { onTileClicked(index) }
-                }
-                tileButtons.add(b)
-                rowLayout.addView(b)
-            }
-            root.addView(rowLayout)
+        farmView = FarmView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(300)
+            )
+            setPadding(0, dp(12), 0, dp(12))
         }
+        root.addView(farmView)
+
+        val moveLabel = TextView(this).apply {
+            text = "Walk with the arrows, stand on a tile, then tap Use Tool."
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, dp(4))
+        }
+        root.addView(moveLabel)
+
+        val upRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        upRow.addView(dpadButton("⬆️", 0, -1))
+        root.addView(upRow)
+
+        val midRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        midRow.addView(dpadButton("⬅️", -1, 0))
+        val useButton = Button(this).apply {
+            text = "Use Tool"
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setOnClickListener { useToolOnCurrentTile() }
+        }
+        midRow.addView(useButton)
+        midRow.addView(dpadButton("➡️", 1, 0))
+        root.addView(midRow)
+
+        val downRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        downRow.addView(dpadButton("⬇️", 0, 1))
+        root.addView(downRow)
 
         val nextDay = Button(this).apply {
             text = "☀️ Next Day"
@@ -158,6 +294,8 @@ class MainActivity : AppCompatActivity() {
                         prefs.edit().clear().apply()
                         coins = 50
                         day = 1
+                        charX = 2.5f
+                        charY = 2.5f
                         for (i in tiles.indices) tiles[i] = Tile()
                         saveGame()
                         refreshAll()
@@ -170,7 +308,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(reset)
 
         val help = TextView(this).apply {
-            text = "How to play: 1. Till the grass. 2. Pick a seed and Plant it. 3. Water it. 4. Tap Next Day to grow it. Water again each day or it will not grow. 5. Harvest when you see 🌾, 🥕, or 🎃. Wheat takes 2 days, Carrot 3, Pumpkin 4. Your farm saves automatically."
+            text = "How to play: Hold an arrow to walk. Stand on grass and Use Tool with Till, then Plant a seed, Water it, tap Next Day to grow it. Water again each day or it will not grow. Harvest when you see 🌾, 🥕, or 🎃. Wheat takes 2 days, Carrot 3, Pumpkin 4. Your farm and your character position save automatically."
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setPadding(0, dp(12), 0, 0)
         }
@@ -178,12 +316,54 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(scroll)
         refreshAll()
+        handler.post(moveRunnable)
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(moveRunnable)
+        saveGame()
+        super.onDestroy()
+    }
+
+    private fun dpadButton(label: String, dx: Int, dy: Int): Button {
+        return Button(this).apply {
+            text = label
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            layoutParams = LinearLayout.LayoutParams(dp(64), dp(56))
+            setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        moveDx = dx
+                        moveDy = dy
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (moveDx == dx && moveDy == dy) {
+                            moveDx = 0
+                            moveDy = 0
+                        }
+                        true
+                    }
+                    else -> true
+                }
+            }
+        }
     }
 
     private fun dp(v: Int): Int {
         return TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
         ).toInt()
+    }
+
+    private fun currentTileIndex(): Int {
+        val c = min(max(charX.toInt(), 0), cols - 1)
+        val r = min(max(charY.toInt(), 0), rows - 1)
+        return r * cols + c
+    }
+
+    private fun useToolOnCurrentTile() {
+        onTileClicked(currentTileIndex())
     }
 
     private fun onTileClicked(index: Int) {
@@ -267,14 +447,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun tileEmoji(tile: Tile): String {
         if (tile.state == 0) return "🌱"
-        if (tile.state == 1) return "🟤"
+        if (tile.state == 1) return ""
         val crop = crops[tile.crop] ?: return "🌱"
-        val base = when {
+        return when {
             tile.progress >= crop.growthDays -> crop.readyEmoji
             tile.progress == 0 -> "🌱"
             else -> "🌿"
         }
-        return if (tile.watered) "$base 💧" else base
     }
 
     private fun refreshAll() {
@@ -286,9 +465,7 @@ class MainActivity : AppCompatActivity() {
         seedButtons.forEach { (name, b) ->
             b.setBackgroundColor(if (name == selectedSeed) Color.parseColor("#FFE082") else Color.parseColor("#DDDDDD"))
         }
-        for (i in tiles.indices) {
-            tileButtons[i].text = tileEmoji(tiles[i])
-        }
+        if (::farmView.isInitialized) farmView.invalidate()
     }
 
     private fun saveGame() {
@@ -299,12 +476,16 @@ class MainActivity : AppCompatActivity() {
             .putInt("coins", coins)
             .putInt("day", day)
             .putString("tiles", tileString)
+            .putFloat("charX", charX)
+            .putFloat("charY", charY)
             .apply()
     }
 
     private fun loadGame() {
         coins = prefs.getInt("coins", 50)
         day = prefs.getInt("day", 1)
+        charX = prefs.getFloat("charX", 2.5f)
+        charY = prefs.getFloat("charY", 2.5f)
         val saved = prefs.getString("tiles", null) ?: return
         val parts = saved.split(";")
         for (i in parts.indices) {
