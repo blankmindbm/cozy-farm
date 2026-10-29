@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -128,12 +129,32 @@ class MainActivity : AppCompatActivity() {
             isAntiAlias = true
         }
 
+        private fun tileCenter(c: Int, r: Int, tileW: Float, tileH: Float, topY: Float): Pair<Float, Float> {
+            val cx = width / 2f + (c - r) * tileW / 2
+            val cy = topY + (c + r) * tileH / 2 + tileH / 2
+            return Pair(cx, cy)
+        }
+
+        private fun drawDiamond(canvas: Canvas, cx: Float, cy: Float, tileW: Float, tileH: Float, paint: Paint) {
+            val path = Path()
+            path.moveTo(cx, cy - tileH / 2)
+            path.lineTo(cx + tileW / 2, cy)
+            path.lineTo(cx, cy + tileH / 2)
+            path.lineTo(cx - tileW / 2, cy)
+            path.close()
+            canvas.drawPath(path, paint)
+        }
+
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            val tileW = width.toFloat() / cols
-            val tileH = height.toFloat() / rows
-            for (r in 0 until rows) {
+            val tileW = width.toFloat() * 2f / (cols + rows)
+            val tileH = tileW / 2
+            val mapHeight = (cols + rows + 1) * tileH / 2
+            val topY = (height - mapHeight) / 2
+            for (sum in 0 until cols + rows - 1) {
                 for (c in 0 until cols) {
+                    val r = sum - c
+                    if (r < 0 || r >= rows) continue
                     val tile = tiles[r * cols + c]
                     val bg = when {
                         isHouseTile(c, r) -> Color.parseColor("#FFE0B2")
@@ -146,10 +167,11 @@ class MainActivity : AppCompatActivity() {
                         }
                         else -> Color.parseColor("#7CB342")
                     }
+                    val (cx, cy) = tileCenter(c, r, tileW, tileH, topY)
                     tilePaint.color = bg
                     tilePaint.style = Paint.Style.FILL
-                    canvas.drawRect(c * tileW, r * tileH, (c + 1) * tileW, (r + 1) * tileH, tilePaint)
-                    canvas.drawRect(c * tileW, r * tileH, (c + 1) * tileW, (r + 1) * tileH, borderPaint)
+                    drawDiamond(canvas, cx, cy, tileW, tileH, tilePaint)
+                    drawDiamond(canvas, cx, cy, tileW, tileH, borderPaint)
                     val emoji = when {
                         isHouseTile(c, r) -> "🏠"
                         isPondTile(c, r) -> "💧"
@@ -162,59 +184,34 @@ class MainActivity : AppCompatActivity() {
                         else -> ""
                     }
                     if (emoji.isNotEmpty()) {
-                        emojiPaint.textSize = min(tileW, tileH) * 0.5f
-                        canvas.drawText(
-                            emoji,
-                            c * tileW + tileW / 2,
-                            r * tileH + tileH / 2 + emojiPaint.textSize / 3,
-                            emojiPaint
-                        )
+                        emojiPaint.textSize = tileH * 0.9f
+                        canvas.drawText(emoji, cx, cy + emojiPaint.textSize / 3, emojiPaint)
                     }
                     if (isFieldTile(c, r) && tile.watered && tile.state == 2) {
-                        emojiPaint.textSize = min(tileW, tileH) * 0.28f
-                        canvas.drawText(
-                            "💧",
-                            c * tileW + tileW - emojiPaint.textSize / 2,
-                            r * tileH + emojiPaint.textSize,
-                            emojiPaint
-                        )
+                        emojiPaint.textSize = tileH * 0.5f
+                        canvas.drawText("💧", cx + tileW / 4, cy - tileH / 4, emojiPaint)
                     }
                 }
             }
             for (animal in animals) {
+                val (cx, cy) = tileCenter(animal.col, animal.row, tileW, tileH, topY)
                 val emoji = if (animal.type == "Cow") "🐄" else "🐔"
-                emojiPaint.textSize = min(tileW, tileH) * 0.55f
-                canvas.drawText(
-                    emoji,
-                    animal.col * tileW + tileW / 2,
-                    animal.row * tileH + tileH / 2 + emojiPaint.textSize / 3,
-                    emojiPaint
-                )
+                emojiPaint.textSize = tileH * 0.9f
+                canvas.drawText(emoji, cx, cy + emojiPaint.textSize / 3, emojiPaint)
                 if (animal.ready) {
-                    emojiPaint.textSize = min(tileW, tileH) * 0.3f
+                    emojiPaint.textSize = tileH * 0.5f
                     val prod = if (animal.type == "Cow") "🥛" else "🥚"
-                    canvas.drawText(
-                        prod,
-                        animal.col * tileW + tileW - emojiPaint.textSize / 2,
-                        animal.row * tileH + emojiPaint.textSize,
-                        emojiPaint
-                    )
+                    canvas.drawText(prod, cx + tileW / 4, cy - tileH / 4, emojiPaint)
                 }
             }
             val charCol = charX.toInt()
             val charRow = charY.toInt()
-            canvas.drawRect(
-                charCol * tileW, charRow * tileH,
-                (charCol + 1) * tileW, (charRow + 1) * tileH,
-                highlightPaint
-            )
-            charPaint.textSize = min(tileW, tileH) * 0.85f
-            canvas.drawText(
-                "🧑‍🌾",
-                charX * tileW,
-                charY * tileH + charPaint.textSize / 3,
-                charPaint
-            )
+            val (hcx, hcy) = tileCenter(charCol, charRow, tileW, tileH, topY)
+            drawDiamond(canvas, hcx, hcy, tileW, tileH, highlightPaint)
+            val charCx = width / 2f + (charX - charY) * tileW / 2
+            val charCy = topY + (charX + charY) * tileH / 2
+            charPaint.textSize = tileH * 1.4f
+            canvas.drawText("🧑‍🌾", charCx, charCy + charPaint.textSize / 3, charPaint)
         }
     }
 
@@ -322,7 +319,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(farmView)
 
         val moveLabel = TextView(this).apply {
-            text = "Walk with the arrows. House is top left, pond top right, mine middle right, pen bottom right. Stand on a tile, then tap Use Tool."
+            text = "Isometric view: walk with the arrows. House is top left, pond top right, mine middle right, pen bottom right. Stand on a tile, then tap Use Tool."
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             gravity = Gravity.CENTER
             setPadding(0, dp(4), 0, dp(4))
